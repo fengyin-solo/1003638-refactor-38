@@ -5,10 +5,13 @@
   "type": "module",
   "repoKind": "frontend-only",
   "scripts": {
+    "predev": "node scripts/build-seed.mjs --if-missing",
     "dev": "vite",
-    "build": "vue-tsc --noEmit && vite build",
+    "seed": "node scripts/build-seed.mjs",
+    "build": "node scripts/build-seed.mjs --if-missing && vue-tsc --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "vue-tsc --noEmit"
+    "typecheck": "vue-tsc --noEmit",
+    "check": "node scripts/deploy-check.mjs"
   },
   "dependencies": {
     "pinia": "^2.1.7",

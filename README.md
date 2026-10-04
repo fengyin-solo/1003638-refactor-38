@@ -14,9 +14,13 @@
 ├── frontend/                 Vue 3 + Vite + TypeScript 前端（唯一运行单元）
 │   ├── src/views/            每个业务模块一个页面
 │   ├── src/api/local-service.ts   本地数据服务：列表、筛选、动作流转、导出
-│   ├── src/data/             模块元数据 / 示例数据 / localStorage 持久化
+│   ├── src/data/             模块元数据 / 示例数据(seed.json) / localStorage 持久化
+│   ├── src/shared/           共用状态规则（浏览器与 Node 脚本同用一份）
 │   ├── src/stores/           会话与筛选状态
+│   ├── scripts/              示例数据构建 build-seed / 部署检查 deploy-check
+│   ├── data/                 上线前旧数据快照（补全输入）
 │   └── vite.config.ts        dev server 配置（open: false，无 /api 代理）
+├── Makefile                  install / frontend / build / seed / check
 ├── .gitignore
 └── docker-compose.yml
 ```
@@ -30,6 +34,7 @@ npm run dev
 ```
 
 前端默认监听 `http://127.0.0.1:5173/`，dev server 不会自动打开浏览器，需要自己访问。
+`npm run dev` 前会自动确认示例数据已构建（`predev` 钩子，缺失时才重建）。
 
 生产构建：
 
@@ -37,6 +42,18 @@ npm run dev
 cd frontend
 npm run build
 ```
+
+## 上线前检查
+
+```bash
+cd frontend
+npm run seed    # 示例数据构建：旧数据补全后写回 src/data/seed.json
+npm run check   # 部署检查：构建产物、状态规则自检、逐样地校验
+```
+
+`npm run check` 逐样地校验时把进度写在 `frontend/.deploy-check.state.json`，
+每通过一个样地就落盘；检查中断后重跑会自动跳过已通过样地，从缺失样地继续，
+全部通过后状态文件自动清除。仓库根目录也可以用 `make seed` / `make check`。
 
 ## 业务模块
 
@@ -66,6 +83,25 @@ npm run build
 - 每个模块的页面在 `frontend/src/views/<模块>/index.vue`，页面只负责渲染，读写统一走
   `frontend/src/api/local-service.ts`。
 - 字段、状态、动作与流转目标集中在 `frontend/src/data/modules.ts`；示例数据在
-  `frontend/src/data/seed.ts`。
+  `frontend/src/data/seed.json`，由 `npm run seed` 构建。
 - 状态流转只允许在 `local-service.ts` 里改，页面组件不做业务判断。
 - 想回到初始数据：清掉浏览器里 `forest-fire-patrol:entries` 这一项，或调用 `resetModule(模块)`。
+
+## 林木生长的共用状态规则
+
+录入、复核、归档三个入口共用 `frontend/src/shared/treegrowth-rules.mjs` 这一份规则
+（纯 ESM，页面、本地服务、构建脚本、部署检查都从这里取）：
+
+- 状态机：`已录入 → 已审核 → 已归档`，审核后也可 `要求复核` 回到 `需复核`，
+  复核后 `复核通过 / 复核不通过` 分别进入 `已审核 / 已录入`。
+- `已归档` 是终态：记录锁定，任何动作都会被拒绝。
+- `要求复核` 会把旧测量值（平均胸径/平均树高/郁闭度）快照进历史并清空，
+  记录上不再残留旧值；`复核通过` 必须随动作提交重新测量的三项指标。
+- 每次流转都写一条带 `调查批次` 的历史记录（本地库 `treegrowth-history`），
+  页面「历史」按钮可查。
+- 复核是幂等的：只有 `需复核` 状态能落复核结果，并发或重复提交只会落一次。
+- 旧数据缺 `调查员 / 林分类型 / 调查批次` 时按 `BACKFILL_DEFAULTS` 补默认值
+  （待补录 / 待定林分 / 历史批次），`样地编号` 一律不动；浏览器里的旧数据
+  在加载时自动补全，`data/legacy-treegrowth.json` 里的旧数据由 `npm run seed` 补全。
+- 防火林带页面的「林带建议清单」同步使用复核结果：需复核的样地建议优先补植，
+  复核通过的样地建议常规巡查。

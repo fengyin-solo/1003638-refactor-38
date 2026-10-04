@@ -85,3 +85,4 @@ desktop.ini
 *.db
 *.pid
 *.seed
+.deploy-check.state.json

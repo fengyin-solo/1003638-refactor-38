@@ -63,6 +63,28 @@
       </tbody>
     </table>
 
+    <section class="panel">
+      <header class="panel-head">
+        <h3>林带建议清单（同步林木生长复核结果）</h3>
+        <button class="btn ghost" type="button" @click="reloadSuggestions">刷新建议</button>
+      </header>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th v-for="column in suggestionColumns" :key="column">{{ column }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="item in suggestions" :key="item['样地编号']">
+            <td v-for="column in suggestionColumns" :key="column">{{ item[column] }}</td>
+          </tr>
+          <tr v-if="!suggestions.length">
+            <td :colspan="suggestionColumns.length" class="empty-state">暂无来自复核结果的林带建议</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
     <footer class="page-foot">
       <span>共 {{ total }} 条防火林带记录</span>
       <span v-if="errorMessage" class="error-text">{{ errorMessage }}</span>
@@ -75,22 +97,25 @@ import { computed, onMounted, ref } from 'vue'
 
 import {
   downloadEntries,
+  listBeltSuggestions,
   listEntries,
   moduleMeta,
   runAction as applyAction,
 } from '@/api/local-service'
-import type { EntryRow } from '@/data/types'
+import type { BeltSuggestion, EntryRow } from '@/data/types'
 
 const meta = moduleMeta('firebelt')
 const columns = ["林带编号", "林带名称", "所属林区", "树种组成", "林带长度", "林带宽度", "种植年份", "林带状态"]
 const actions = ["安排补植", "确认补植", "标记退化"]
 const statuses = ["完好", "有缺株", "需补植", "已退化"]
 const stats = [{"label": "林带总数", "value": 0}, {"label": "完好条数", "value": 0}, {"label": "缺株条数", "value": 0}]
+const suggestionColumns = ['样地编号', '建议', '依据', '调查批次'] as const
 
 const rows = ref<EntryRow[]>([])
 const total = ref(0)
 const errorMessage = ref('')
 const filters = ref<Record<string, string>>({})
+const suggestions = ref<BeltSuggestion[]>([])
 const filterFields = columns.slice(0, 3)
 const statusSummary = computed(() =>
   statuses.map((status: string) => ({
@@ -122,12 +147,17 @@ function runAction(action: string, row: EntryRow) {
   reload()
 }
 
+function reloadSuggestions() {
+  suggestions.value = listBeltSuggestions()
+}
+
 function reload() {
   errorMessage.value = ''
   try {
     const payload = listEntries(meta.key, filters.value)
     rows.value = payload.items
     total.value = payload.total
+    reloadSuggestions()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '防火林带列表读取失败'
   }
@@ -135,3 +165,23 @@ function reload() {
 
 onMounted(reload)
 </script>
+
+<style scoped>
+.panel {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  margin-top: 12px;
+}
+.panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.panel-head h3 {
+  margin: 0;
+  font-size: 14px;
+}
+</style>

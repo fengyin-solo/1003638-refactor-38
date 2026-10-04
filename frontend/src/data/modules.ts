@@ -1,3 +1,4 @@
+import { STATUSES, TERMINAL_STATUSES, TRANSITIONS } from '@/shared/treegrowth-rules.mjs'
 import type { ModuleMeta } from './types'
 
 // 模块元数据由仓库生成时写入：字段、状态、动作、流转目标都在这里，页面不再各自写一遍。
@@ -194,10 +195,12 @@ export const MODULES: ModuleMeta[] = [
     name: "林木生长",
     entity: "林木生长记录",
     desc: "维护林木生长记录，围绕记录编号、样地编号、林分类型、平均胸径做登记、筛选与状态流转。",
-    fields: ["记录编号", "样地编号", "林分类型", "平均胸径", "平均树高", "郁闭度", "调查员", "记录状态"],
-    statuses: ["已录入", "已审核", "需复核", "已归档"],
-    actions: ["提交审核", "确认记录", "要求复核"],
-    actionTargets: {"提交审核": "已审核", "确认记录": "已归档", "要求复核": "需复核"},
+    fields: ["记录编号", "样地编号", "林分类型", "平均胸径", "平均树高", "郁闭度", "调查员", "调查批次", "记录状态"],
+    statuses: [...STATUSES],
+    actions: TRANSITIONS.map((rule) => rule.action),
+    actionTargets: Object.fromEntries(TRANSITIONS.map((rule) => [rule.action, rule.to])),
+    terminalStatuses: [...TERMINAL_STATUSES],
+    flow: TRANSITIONS,
     metrics: ["样地数量", "待审核记录", "本月录入"],
   },
 ]
