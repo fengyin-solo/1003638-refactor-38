@@ -24,6 +24,26 @@
       </span>
     </p>
 
+    <section class="suggest-box">
+      <h3>林带建议清单（来自林木生长复核结果）</h3>
+      <table v-if="suggestions.length" class="data-table">
+        <thead>
+          <tr><th>来源记录</th><th>样地编号</th><th>所属林区</th><th>关联林带</th><th>建议类型</th><th>建议原因</th></tr>
+        </thead>
+        <tbody>
+          <tr v-for="item in suggestions" :key="`${item.recordCode}-${item.kind}`">
+            <td>{{ item.recordCode }}</td>
+            <td>{{ item.plotCode }}</td>
+            <td>{{ item.forestArea }}</td>
+            <td>{{ item.beltCode }}</td>
+            <td>{{ item.kind }}</td>
+            <td>{{ item.reason }}</td>
+          </tr>
+        </tbody>
+      </table>
+      <p v-else class="empty-state">暂无建议：林木生长复核未发现需要林带跟进的样地</p>
+    </section>
+
     <form class="filter-bar" @submit.prevent="reload">
       <label v-for="field in filterFields" :key="field" class="filter-item">
         <span>{{ field }}</span>
@@ -75,11 +95,12 @@ import { computed, onMounted, ref } from 'vue'
 
 import {
   downloadEntries,
+  listBeltSuggestions,
   listEntries,
   moduleMeta,
   runAction as applyAction,
 } from '@/api/local-service'
-import type { EntryRow } from '@/data/types'
+import type { BeltSuggestion, EntryRow } from '@/data/types'
 
 const meta = moduleMeta('firebelt')
 const columns = ["林带编号", "林带名称", "所属林区", "树种组成", "林带长度", "林带宽度", "种植年份", "林带状态"]
@@ -92,6 +113,7 @@ const total = ref(0)
 const errorMessage = ref('')
 const filters = ref<Record<string, string>>({})
 const filterFields = columns.slice(0, 3)
+const suggestions = ref<BeltSuggestion[]>([])
 const statusSummary = computed(() =>
   statuses.map((status: string) => ({
     status,
@@ -128,6 +150,8 @@ function reload() {
     const payload = listEntries(meta.key, filters.value)
     rows.value = payload.items
     total.value = payload.total
+    // 建议清单随复核结果实时同步：林木生长页复核/重测后回到这里即刷新。
+    suggestions.value = listBeltSuggestions()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '防火林带列表读取失败'
   }
@@ -135,3 +159,14 @@ function reload() {
 
 onMounted(reload)
 </script>
+
+<style scoped>
+.suggest-box {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+.suggest-box h3 { margin: 0 0 8px; font-size: 14px; }
+</style>

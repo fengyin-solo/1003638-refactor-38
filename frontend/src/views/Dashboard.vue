@@ -14,6 +14,10 @@
         <span class="stat-label">{{ card.label }}</span>
         <strong class="stat-value">{{ card.value }}</strong>
       </article>
+      <article class="stat-card">
+        <span class="stat-label">林带建议（复核同步）</span>
+        <strong class="stat-value">{{ suggestionCount }}</strong>
+      </article>
     </div>
     <table class="data-table">
       <thead>
@@ -37,16 +41,18 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 
-import { loadOverview } from '@/api/local-service'
+import { listBeltSuggestions, loadOverview } from '@/api/local-service'
 import type { OverviewResult } from '@/data/types'
 
 const cards = ref<OverviewResult['cards']>([])
 const moduleRows = ref<OverviewResult['modules']>([])
+const suggestionCount = ref(0)
 
 function refresh() {
   const payload = loadOverview()
   cards.value = payload.cards
   moduleRows.value = payload.modules
+  suggestionCount.value = listBeltSuggestions().length
 }
 
 onMounted(refresh)

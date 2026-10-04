@@ -12,31 +12,85 @@
 ```text
 .
 ├── frontend/                 Vue 3 + Vite + TypeScript 前端（唯一运行单元）
+│   ├── scripts/
+│   │   ├── seed-build.ts     示例数据构建器（单一数据源，产物随仓库提交）
+│   │   ├── check-deploy.ts   上线前规则检查（状态机/复核/并发/断点续检/旧数据补全）
+│   │   └── run-ts.mjs        离线运行 TS 脚本（esbuild 即时打包，无需额外依赖）
+│   ├── src/domain/           业务规则层（三处入口共用，页面不做业务判断）
+│   │   ├── status-rules.ts       共用状态机：能不能流转、终态锁定、pending/abnormal
+│   │   ├── legacy.ts             旧数据迁移（补调查员/林分类型/批次，绝不改样地编号）
+│   │   ├── measurement.ts        测量值复核判定（胸径/树高/郁闭度区间）
+│   │   ├── treegrowth.ts         林木生长工作流：复核快照、并发去重、批量断点续检
+│   │   ├── belt-suggestions.ts   林带建议清单（由复核结果推导）
+│   │   └── preflight.ts          上线前检查的全部规则用例
 │   ├── src/views/            每个业务模块一个页面
 │   ├── src/api/local-service.ts   本地数据服务：列表、筛选、动作流转、导出
-│   ├── src/data/             模块元数据 / 示例数据 / localStorage 持久化
-│   ├── src/stores/           会话与筛选状态
-│   └── vite.config.ts        dev server 配置（open: false，无 /api 代理）
-├── .gitignore
-└── docker-compose.yml
+│   ├── src/data/             模块元数据 / 示例数据产物 / localStorage 持久化
+│   └── vite.config.ts        dev server 配置（启动即跑上线前规则检查）
+├── Makefile
+└── docker-compose.yml        构建期跑完整部署检查，产物由 nginx 托管（8080 端口）
 ```
 
-## 启动
+## 启动与检查
 
 ```bash
 cd frontend
 npm install
-npm run dev
+npm run dev            # 本地开发：启动时自动跑上线前规则检查，有阻断问题直接启动失败
 ```
 
 前端默认监听 `http://127.0.0.1:5173/`，dev server 不会自动打开浏览器，需要自己访问。
 
-生产构建：
+示例数据不是手写的，改数据要改构建器后重新生成（产物 `src/data/seed.generated.json` 需提交）：
 
 ```bash
-cd frontend
-npm run build
+npm run seed:build     # 由 scripts/seed-build.ts 生成示例数据，构建即跑旧数据补全
 ```
+
+上线前部署检查（示例数据一致性 + 全部业务规则 + 类型检查 + 生产构建）：
+
+```bash
+npm run check:deploy   # 等价于 make check
+```
+
+容器部署（构建期自动执行 `seed:build` 与 `check:deploy`，任一失败镜像构建中止）：
+
+```bash
+docker compose up --build
+# 访问 http://127.0.0.1:8080/
+```
+
+## 林木生长状态规则（录入 / 复核 / 归档共用）
+
+三個入口的状态判断收拢在 `src/domain/status-rules.ts` 与 `src/domain/treegrowth.ts`：
+
+| 当前状态 | 允许动作 | 目标状态 |
+| --- | --- | --- |
+| 已录入 | 提交审核 | 已审核 |
+| 已审核 | 复核通过 / 归档（两者同规则） | 已归档 |
+| 已审核 | 人工要求复核 | 需复核 |
+| 需复核 | 录入重新测量值 | 已录入 |
+| 已归档 | （无，终态锁定） | — |
+
+- **已归档样地在任何入口都改不了**：归档不出现在状态机白名单的任何源状态里。
+- **复核失败不留旧值**：旧的胸径/树高/郁闭度连同**调查批次**一起进「历史测量值」快照，
+  当前测量列清成「待补测」，必须重新外业测量，杜绝旧值残留冒充新值。
+- **并发复核只落一次**：同一样地复核进行中重复提交直接拒绝（复核锁）。
+- **批量复核可断点续检**：计划与游标逐条落 checkpoint，中断后再跑从缺失样地继续；
+  中断期间新出现的已审核样地会自动补进计划，已处理样地不会重复复核。
+- **旧数据补全**（本地加载、示例构建、部署检查三处共用 `legacy.ts`）：
+  缺调查员→`历史补登（调查员待核实）`；缺林分类型→`未划分林分`；
+  缺调查批次→`HIST-LEGACY｜历史批次（迁移前）`；缺所属林区→`待核实林区`。
+  **样地编号是业务主键，任何迁移分支都不赋值、不改写**，只校验存在。
+
+## 林带建议清单
+
+防火林带页与运营概览展示的建议，全部由林木生长复核结果推导（`belt-suggestions.ts`），
+防火林带等模块不自行判断测量值：
+
+- 复核失败（需复核）样地 → 建议对同林区林带「重点核查补植」，附失败原因与批次；
+- 已归档但郁闭度低于 0.4 的样地 → 建议「跟踪补植」。
+- 林区按样地的「所属林区」与林带档案关联；旧数据缺林区补为「待核实林区」。
 
 ## 业务模块
 
@@ -64,8 +118,9 @@ npm run build
 ## 约定
 
 - 每个模块的页面在 `frontend/src/views/<模块>/index.vue`，页面只负责渲染，读写统一走
-  `frontend/src/api/local-service.ts`。
-- 字段、状态、动作与流转目标集中在 `frontend/src/data/modules.ts`；示例数据在
-  `frontend/src/data/seed.ts`。
-- 状态流转只允许在 `local-service.ts` 里改，页面组件不做业务判断。
-- 想回到初始数据：清掉浏览器里 `forest-fire-patrol:entries` 这一项，或调用 `resetModule(模块)`。
+  `frontend/src/api/local-service.ts`；林木生长的录入/复核/归档走 `treegrowth-service.ts`。
+- 字段、状态、动作与流转目标集中在 `frontend/src/data/modules.ts`；林木生长的显式状态机
+  白名单在其 `transitions` 字段。
+- 状态流转只允许在 `src/domain/status-rules.ts` 里判定，页面组件不做业务判断。
+- 想回到初始数据：清掉浏览器里 `forest-fire-patrol:entries` 与
+  `forest-fire-patrol:schema-version` 两项，或调用 `resetModule(模块)`。

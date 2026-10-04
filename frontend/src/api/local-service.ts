@@ -1,9 +1,8 @@
 import { MODULE_BY_KEY } from '@/data/modules'
 import { allRows, listRows, resetRows, saveRows } from '@/data/local-store'
-import type { ActionResult, EntryRow, ModuleMeta, OverviewResult, PageResult } from '@/data/types'
-
-// 会写进数据的「往回走」动作：命中就把这条记录标成异常态，看板上能一眼看出来。
-const NEGATIVE_ACTIONS = ['撤销', '作废', '拒绝', '驳回', '停用', '忽略', '下线', '回滚']
+import type { ActionResult, BeltSuggestion, EntryRow, ModuleMeta, OverviewResult, PageResult } from '@/data/types'
+import { applyDecision, decideTransition, rejected, succeeded } from '@/domain/status-rules'
+import { buildBeltSuggestions, indexBeltsByArea } from '@/domain/belt-suggestions'
 
 export function moduleMeta(key: string): ModuleMeta {
   const meta = MODULE_BY_KEY.get(key)
@@ -28,32 +27,25 @@ export function listEntries(key: string, filters: Record<string, string> = {}): 
   return { items: matched, total: matched.length, page: 1, size: matched.length }
 }
 
+/**
+ * 通用动作入口：状态能不能流转全部交给共用状态机 decideTransition，
+ * 页面不再做任何业务判断。林木生长的复核/重新测量走专用服务（带测量值处理）。
+ */
 export function runAction(key: string, id: number, action: string): ActionResult {
   const meta = moduleMeta(key)
-  const target = meta.actionTargets[action]
-  if (!target) {
-    return { ok: false, message: `${meta.entity}没有登记「${action}」这个动作` }
-  }
   const rows = listRows(key)
   const index = rows.findIndex((row) => Number(row.id) === id)
   if (index < 0) {
-    return { ok: false, message: `没有找到编号为 ${id} 的${meta.entity}` }
+    return rejected(`没有找到编号为 ${id} 的${meta.entity}`)
   }
-  const current = String(rows[index].status)
-  if (current === target) {
-    return { ok: false, message: `${meta.entity}已经是「${target}」，不用重复操作` }
-  }
-  const lastStatus = meta.statuses[meta.statuses.length - 1]
-  const updated: EntryRow = {
-    ...rows[index],
-    status: target,
-    pending: target !== lastStatus,
-    abnormal: NEGATIVE_ACTIONS.some((verb) => action.startsWith(verb)),
+  const decision = decideTransition(meta, rows[index], action)
+  if (!decision.ok) {
+    return decision
   }
   const next = [...rows]
-  next[index] = updated
+  next[index] = applyDecision(rows[index], decision)
   saveRows(key, next)
-  return { ok: true, message: `${meta.entity}已${action}，当前状态「${target}」` }
+  return succeeded(`${meta.entity}已${action}，当前状态「${decision.target}」`)
 }
 
 export function resetModule(key: string): PageResult {
@@ -68,7 +60,7 @@ export function exportEntries(key: string): { filename: string; content: string 
   for (const row of listRows(key)) {
     lines.push([row.id, ...meta.fields.map((field) => row[field] ?? ''), row.status].join(','))
   }
-  return { filename: `${meta.name}-清单.csv`, content: `\uFEFF${lines.join('\n')}` }
+  return { filename: `${meta.name}-清单.csv`, content: `﻿${lines.join('\n')}` }
 }
 
 export function downloadEntries(key: string): void {
@@ -82,6 +74,16 @@ export function downloadEntries(key: string): void {
   anchor.click()
   document.body.removeChild(anchor)
   URL.revokeObjectURL(url)
+}
+
+/**
+ * 林带建议清单：其它模块（防火林带页、概览页）统一从这里取，
+ * 建议内容完全由林木生长的复核结果推导，不另起一套判断。
+ */
+export function listBeltSuggestions(): BeltSuggestion[] {
+  const treeRows = listRows('treegrowth')
+  const beltRows = listRows('firebelt')
+  return buildBeltSuggestions(treeRows, indexBeltsByArea(beltRows))
 }
 
 export function loadOverview(): OverviewResult {
